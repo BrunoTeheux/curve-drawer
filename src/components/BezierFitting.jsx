@@ -2,11 +2,41 @@ import React, { useState, useRef, useEffect } from 'react';
 
 const BezierFitting = () => {
   const canvasRef = useRef(null);
+  const containerRef = useRef(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [points, setPoints] = useState([]);
   const [curves, setCurves] = useState([]);
+  const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
 
-  // Lissage avec fenêtre glissante et pondération gaussienne
+  // Fonction pour redimensionner le canvas
+  const resizeCanvas = () => {
+    if (!containerRef.current) return;
+    
+    const container = containerRef.current;
+    const containerWidth = container.clientWidth;
+    // Calculer une hauteur proportionnelle avec un maximum de 70vh
+    const containerHeight = Math.min(containerWidth * 0.5, window.innerHeight * 0.7);
+    
+    setCanvasSize({
+      width: containerWidth,
+      height: containerHeight
+    });
+  };
+  // Observer le redimensionnement
+  useEffect(() => {
+    const resizeObserver = new ResizeObserver(resizeCanvas);
+    if (containerRef.current) {
+      resizeObserver.observe(containerRef.current);
+    }
+    
+    // Initialiser la taille
+    resizeCanvas();
+    
+    return () => {
+      resizeObserver.disconnect();
+    };
+  }, []);
+
   const smoothPoints = (points) => {
     if (points.length < 3) return points;
     
@@ -95,6 +125,100 @@ const BezierFitting = () => {
     return curves;
   };
 
+  // Ajuster le canvas quand sa taille change
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    // Mettre à jour les dimensions du canvas
+    canvas.width = canvasSize.width;
+    canvas.height = canvasSize.height;
+
+    // Redessiner le contenu
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    if (points.length < 1) return;
+
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    
+    // Ligne en cours de dessin
+    if (isDrawing) {
+      ctx.beginPath();
+      ctx.strokeStyle = '#93c5fd';
+      ctx.lineWidth = Math.max(2.5, canvasSize.width / 240);
+      
+      ctx.moveTo(points[0].x, points[0].y);
+      for (let i = 1; i < points.length; i++) {
+        ctx.lineTo(points[i].x, points[i].y);
+      }
+      ctx.stroke();
+    }
+    
+    // Courbe lissée
+    if (points.length > 2) {
+      const newCurves = calculateBezier(points);
+      setCurves(newCurves);
+      
+      ctx.beginPath();
+      ctx.strokeStyle = '#2563eb';
+      ctx.lineWidth = Math.max(3, canvasSize.width / 200);
+      
+      newCurves.forEach(curve => {
+        const { p0, p1, p2, p3 } = curve;
+        ctx.moveTo(p0.x, p0.y);
+        ctx.bezierCurveTo(p1.x, p1.y, p2.x, p2.y, p3.x, p3.y);
+      });
+      ctx.stroke();
+    }
+  }, [points, canvasSize]);
+
+  const getMousePos = (e) => {
+    const canvas = canvasRef.current;
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: (e.clientX - rect.left) * (canvas.width / rect.width),
+      y: (e.clientY - rect.top) * (canvas.height / rect.height)
+    };
+  };
+
+  const addPoint = (point, prevPoints) => {
+    if (prevPoints.length > 0) {
+      const lastPoint = prevPoints[prevPoints.length - 1];
+      const dx = point.x - lastPoint.x;
+      const dy = point.y - lastPoint.y;
+      const distSquared = dx * dx + dy * dy;
+      const minDistance = Math.max(4, canvasSize.width / 150);
+      if (distSquared < minDistance * minDistance) {
+        return prevPoints;
+      }
+    }
+    return [...prevPoints, point];
+  };
+
+  const handleMouseDown = (e) => {
+    setIsDrawing(true);
+    const pos = getMousePos(e);
+    setPoints([pos]);
+    setCurves([]);
+  };
+
+  const handleMouseMove = (e) => {
+    if (!isDrawing) return;
+    const pos = getMousePos(e);
+    setPoints(prev => addPoint(pos, prev));
+  };
+
+  const handleMouseUp = () => {
+    setIsDrawing(false);
+  };
+
+  const clearCanvas = () => {
+    setPoints([]);
+    setCurves([]);
+  };
+
   const generateSVG = () => {
     if (curves.length === 0) return;
 
@@ -140,114 +264,43 @@ const BezierFitting = () => {
     URL.revokeObjectURL(url);
   };
 
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    if (points.length < 1) return;
-
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    
-    // Ligne en cours de dessin
-    if (isDrawing) {
-      ctx.beginPath();
-      ctx.strokeStyle = '#93c5fd';
-      ctx.lineWidth = 2.5;
-      
-      ctx.moveTo(points[0].x, points[0].y);
-      for (let i = 1; i < points.length; i++) {
-        ctx.lineTo(points[i].x, points[i].y);
-      }
-      ctx.stroke();
-    }
-    
-    // Courbe lissée
-    if (points.length > 2) {
-      const newCurves = calculateBezier(points);
-      setCurves(newCurves);
-      
-      ctx.beginPath();
-      ctx.strokeStyle = '#2563eb';
-      ctx.lineWidth = 3;
-      
-      newCurves.forEach(curve => {
-        const { p0, p1, p2, p3 } = curve;
-        ctx.moveTo(p0.x, p0.y);
-        ctx.bezierCurveTo(p1.x, p1.y, p2.x, p2.y, p3.x, p3.y);
-      });
-      ctx.stroke();
-    }
-  }, [points]);
-
-  const getMousePos = (e) => {
-    const canvas = canvasRef.current;
-    const rect = canvas.getBoundingClientRect();
-    return {
-      x: (e.clientX - rect.left) * (canvas.width / rect.width),
-      y: (e.clientY - rect.top) * (canvas.height / rect.height)
-    };
-  };
-
-  const addPoint = (point, prevPoints) => {
-    if (prevPoints.length > 0) {
-      const lastPoint = prevPoints[prevPoints.length - 1];
-      const dx = point.x - lastPoint.x;
-      const dy = point.y - lastPoint.y;
-      const distSquared = dx * dx + dy * dy;
-      if (distSquared < 16) {
-        return prevPoints;
-      }
-    }
-    return [...prevPoints, point];
-  };
-
-  const handleMouseDown = (e) => {
-    setIsDrawing(true);
-    const pos = getMousePos(e);
-    setPoints([pos]);
-    setCurves([]);
-  };
-
-  const handleMouseMove = (e) => {
-    if (!isDrawing) return;
-    const pos = getMousePos(e);
-    setPoints(prev => addPoint(pos, prev));
-  };
-
-  const handleMouseUp = () => {
-    setIsDrawing(false);
-  };
-
-  const clearCanvas = () => {
-    setPoints([]);
-    setCurves([]);
-  };
-
-  return (
-    <div className="w-full max-w-2xl mx-auto p-4">
-      <div className="border rounded-lg p-4 bg-white shadow-sm">
+return (
+    <div className="w-full p-4">
+      <div 
+        ref={containerRef}
+        className="border rounded-lg p-2 sm:p-4 bg-white shadow-sm"
+      >
         <canvas
           ref={canvasRef}
-          width={600}
-          height={400}
           className="w-full border rounded cursor-crosshair"
+          style={{ 
+            height: canvasSize.height,
+            touchAction: 'none'
+          }}
           onMouseDown={handleMouseDown}
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
           onMouseLeave={handleMouseUp}
+          onTouchStart={(e) => {
+            e.preventDefault();
+            handleMouseDown(e.touches[0]);
+          }}
+          onTouchMove={(e) => {
+            e.preventDefault();
+            handleMouseMove(e.touches[0]);
+          }}
+          onTouchEnd={handleMouseUp}
         />
-        <div className="mt-4 flex gap-4">
+        <div className="mt-4 flex flex-col sm:flex-row gap-4 justify-center sm:justify-start">
           <button
             onClick={clearCanvas}
-            className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+            className="w-full sm:w-auto px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 text-sm sm:text-base"
           >
             Effacer
           </button>
           <button
             onClick={generateSVG}
-            className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600"
+            className="w-full sm:w-auto px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 text-sm sm:text-base"
             disabled={curves.length === 0}
           >
             Exporter SVG
@@ -257,5 +310,6 @@ const BezierFitting = () => {
     </div>
   );
 };
+
 
 export default BezierFitting;
