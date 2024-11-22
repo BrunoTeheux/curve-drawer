@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 
 const BezierFitting = () => {
+  // États
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
   const [isDrawing, setIsDrawing] = useState(false);
@@ -8,8 +9,68 @@ const BezierFitting = () => {
   const [curves, setCurves] = useState([]);
   const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
   const [showHandDrawn, setShowHandDrawn] = useState(true);
+  const [strokeWidth, setStrokeWidth] = useState(3);
 
-  // Redimensionnement du canvas
+  // Fonction utilitaire pour obtenir la position de la souris
+  const getMousePos = (e) => {
+    const canvas = canvasRef.current;
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: (e.clientX - rect.left) * (canvas.width / rect.width),
+      y: (e.clientY - rect.top) * (canvas.height / rect.height)
+    };
+  };
+
+  // Fonction pour ajouter des points avec une distance minimale
+  const addPoint = (point, prevPoints) => {
+    if (prevPoints.length > 0) {
+      const lastPoint = prevPoints[prevPoints.length - 1];
+      const dx = point.x - lastPoint.x;
+      const dy = point.y - lastPoint.y;
+      const distSquared = dx * dx + dy * dy;
+      const minDistance = Math.max(4, canvasSize.width / 150);
+      if (distSquared < minDistance * minDistance) {
+        return prevPoints;
+      }
+    }
+    return [...prevPoints, point];
+  };
+
+  // Gestionnaires d'événements
+  const handleMouseDown = (e) => {
+    setIsDrawing(true);
+    const pos = getMousePos(e);
+    setPoints([pos]);
+    setCurves([]);
+  };
+
+  const handleMouseMove = (e) => {
+    if (!isDrawing) return;
+    const pos = getMousePos(e);
+    setPoints(prev => addPoint(pos, prev));
+  };
+
+  const handleMouseUp = () => {
+    setIsDrawing(false);
+  };
+
+  const handleTouchStart = (e) => {
+    e.preventDefault();
+    handleMouseDown(e.touches[0]);
+  };
+
+  const handleTouchMove = (e) => {
+    e.preventDefault();
+    handleMouseMove(e.touches[0]);
+  };
+
+  // Fonction de nettoyage
+  const clearCanvas = () => {
+    setPoints([]);
+    setCurves([]);
+  };
+
+  // Fonction de redimensionnement
   const resizeCanvas = () => {
     if (!containerRef.current) return;
     
@@ -23,21 +84,7 @@ const BezierFitting = () => {
     });
   };
 
-  // Observer le redimensionnement
-  useEffect(() => {
-    const resizeObserver = new ResizeObserver(resizeCanvas);
-    if (containerRef.current) {
-      resizeObserver.observe(containerRef.current);
-    }
-    
-    resizeCanvas();
-    
-    return () => {
-      resizeObserver.disconnect();
-    };
-  }, []);
-
-  // Lissage des points
+  // Fonction de lissage des points
   const smoothPoints = (points) => {
     if (points.length < 3) return points;
     
@@ -70,7 +117,7 @@ const BezierFitting = () => {
     return smoothed;
   };
 
-  // Calcul des courbes de Bézier
+  // Fonction de calcul des courbes de Bézier
   const calculateBezier = (points) => {
     if (points.length < 2) return [];
     
@@ -119,7 +166,67 @@ const BezierFitting = () => {
     return curves;
   };
 
-  // Effet de rendu du canvas
+  // Fonction d'export SVG
+  const generateSVG = () => {
+    if (curves.length === 0) return;
+
+    let minX = Infinity, minY = Infinity;
+    let maxX = -Infinity, maxY = -Infinity;
+
+    curves.forEach(curve => {
+      [curve.p0, curve.p1, curve.p2, curve.p3].forEach(p => {
+        minX = Math.min(minX, p.x);
+        minY = Math.min(minY, p.y);
+        maxX = Math.max(maxX, p.x);
+        maxY = Math.max(maxY, p.y);
+      });
+    });
+
+    const margin = 10;
+    minX -= margin;
+    minY -= margin;
+    maxX += margin;
+    maxY += margin;
+
+    const width = maxX - minX;
+    const height = maxY - minY;
+
+    let path = `M ${curves[0].p0.x - minX} ${curves[0].p0.y - minY}`;
+    curves.forEach(curve => {
+      path += ` C ${curve.p1.x - minX} ${curve.p1.y - minY}, ${curve.p2.x - minX} ${curve.p2.y - minY}, ${curve.p3.x - minX} ${curve.p3.y - minY}`;
+    });
+
+    const svgContent = `<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+  <path d="${path}" fill="none" stroke="#2563eb" stroke-width="${strokeWidth}" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>`;
+
+    const blob = new Blob([svgContent], { type: 'image/svg+xml' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'curve.svg';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  // Effet pour le redimensionnement
+  useEffect(() => {
+    const resizeObserver = new ResizeObserver(resizeCanvas);
+    if (containerRef.current) {
+      resizeObserver.observe(containerRef.current);
+    }
+    
+    resizeCanvas();
+    
+    return () => {
+      resizeObserver.disconnect();
+    };
+  }, []);
+
+  // Effet pour le rendu du canvas
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -155,7 +262,7 @@ const BezierFitting = () => {
       
       ctx.beginPath();
       ctx.strokeStyle = '#2563eb';
-      ctx.lineWidth = Math.max(3, canvasSize.width / 200);
+      ctx.lineWidth = strokeWidth;
       
       newCurves.forEach(curve => {
         const { p0, p1, p2, p3 } = curve;
@@ -164,102 +271,7 @@ const BezierFitting = () => {
       });
       ctx.stroke();
     }
-  }, [points, canvasSize, showHandDrawn]);
-
-  // Gestion de la position de la souris
-  const getMousePos = (e) => {
-    const canvas = canvasRef.current;
-    const rect = canvas.getBoundingClientRect();
-    return {
-      x: (e.clientX - rect.left) * (canvas.width / rect.width),
-      y: (e.clientY - rect.top) * (canvas.height / rect.height)
-    };
-  };
-
-  // Ajout de points avec distance minimale
-  const addPoint = (point, prevPoints) => {
-    if (prevPoints.length > 0) {
-      const lastPoint = prevPoints[prevPoints.length - 1];
-      const dx = point.x - lastPoint.x;
-      const dy = point.y - lastPoint.y;
-      const distSquared = dx * dx + dy * dy;
-      const minDistance = Math.max(4, canvasSize.width / 150);
-      if (distSquared < minDistance * minDistance) {
-        return prevPoints;
-      }
-    }
-    return [...prevPoints, point];
-  };
-
-  // Gestionnaires d'événements
-  const handleMouseDown = (e) => {
-    setIsDrawing(true);
-    const pos = getMousePos(e);
-    setPoints([pos]);
-    setCurves([]);
-  };
-
-  const handleMouseMove = (e) => {
-    if (!isDrawing) return;
-    const pos = getMousePos(e);
-    setPoints(prev => addPoint(pos, prev));
-  };
-
-  const handleMouseUp = () => {
-    setIsDrawing(false);
-  };
-
-  // Nettoyage du canvas
-  const clearCanvas = () => {
-    setPoints([]);
-    setCurves([]);
-  };
-
-  // Génération du SVG
-  const generateSVG = () => {
-    if (curves.length === 0) return;
-
-    let minX = Infinity, minY = Infinity;
-    let maxX = -Infinity, maxY = -Infinity;
-
-    curves.forEach(curve => {
-      [curve.p0, curve.p1, curve.p2, curve.p3].forEach(p => {
-        minX = Math.min(minX, p.x);
-        minY = Math.min(minY, p.y);
-        maxX = Math.max(maxX, p.x);
-        maxY = Math.max(maxY, p.y);
-      });
-    });
-
-    const margin = 10;
-    minX -= margin;
-    minY -= margin;
-    maxX += margin;
-    maxY += margin;
-
-    const width = maxX - minX;
-    const height = maxY - minY;
-
-    let path = `M ${curves[0].p0.x - minX} ${curves[0].p0.y - minY}`;
-    curves.forEach(curve => {
-      path += ` C ${curve.p1.x - minX} ${curve.p1.y - minY}, ${curve.p2.x - minX} ${curve.p2.y - minY}, ${curve.p3.x - minX} ${curve.p3.y - minY}`;
-    });
-
-    const svgContent = `<?xml version="1.0" encoding="UTF-8" standalone="no"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
-  <path d="${path}" fill="none" stroke="#2563eb" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
-</svg>`;
-
-    const blob = new Blob([svgContent], { type: 'image/svg+xml' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = 'curve.svg';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-  };
+  }, [points, canvasSize, showHandDrawn, strokeWidth]);
 
   return (
     <div className="w-full p-4">
@@ -278,38 +290,48 @@ const BezierFitting = () => {
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
           onMouseLeave={handleMouseUp}
-          onTouchStart={(e) => {
-            e.preventDefault();
-            handleMouseDown(e.touches[0]);
-          }}
-          onTouchMove={(e) => {
-            e.preventDefault();
-            handleMouseMove(e.touches[0]);
-          }}
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
           onTouchEnd={handleMouseUp}
         />
-        <div className="mt-4 flex flex-col sm:flex-row gap-4 justify-center sm:justify-start">
-          <button
-            onClick={clearCanvas}
-            className="w-full sm:w-auto px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 text-sm sm:text-base"
-          >
-            Effacer
-          </button>
-          <button
-            onClick={generateSVG}
-            className="w-full sm:w-auto px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 text-sm sm:text-base"
-            disabled={curves.length === 0}
-          >
-            Exporter SVG
-          </button>
-          <button
-            onClick={() => setShowHandDrawn(!showHandDrawn)}
-            className={`w-full sm:w-auto px-4 py-2 text-white rounded text-sm sm:text-base ${
-              showHandDrawn ? 'bg-purple-500 hover:bg-purple-600' : 'bg-gray-500 hover:bg-gray-600'
-            }`}
-          >
-            {showHandDrawn ? 'Masquer le trait' : 'Afficher le trait'}
-          </button>
+        <div className="mt-4 space-y-4">
+          <div className="flex flex-col sm:flex-row gap-4 justify-center sm:justify-start">
+            <button
+              onClick={clearCanvas}
+              className="w-full sm:w-auto px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 text-sm sm:text-base"
+            >
+              Effacer
+            </button>
+            <button
+              onClick={generateSVG}
+              className="w-full sm:w-auto px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 text-sm sm:text-base"
+              disabled={curves.length === 0}
+            >
+              Exporter SVG
+            </button>
+            <button
+              onClick={() => setShowHandDrawn(!showHandDrawn)}
+              className={`w-full sm:w-auto px-4 py-2 text-white rounded text-sm sm:text-base ${
+                showHandDrawn ? 'bg-purple-500 hover:bg-purple-600' : 'bg-gray-500 hover:bg-gray-600'
+              }`}
+            >
+              {showHandDrawn ? 'Masquer le trait' : 'Afficher le trait'}
+            </button>
+          </div>
+
+          <div className="flex flex-col sm:flex-row items-center gap-4">
+            <label className="text-sm font-medium text-gray-700 min-w-[140px]">
+              Épaisseur du trait : {strokeWidth}px
+            </label>
+            <input
+              type="range"
+              min="1"
+              max="20"
+              value={strokeWidth}
+              onChange={(e) => setStrokeWidth(Number(e.target.value))}
+              className="w-full sm:w-64 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+            />
+          </div>
         </div>
       </div>
     </div>
