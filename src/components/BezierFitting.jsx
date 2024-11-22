@@ -7,14 +7,14 @@ const BezierFitting = () => {
   const [points, setPoints] = useState([]);
   const [curves, setCurves] = useState([]);
   const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
+  const [showHandDrawn, setShowHandDrawn] = useState(true);
 
-  // Fonction pour redimensionner le canvas
+  // Redimensionnement du canvas
   const resizeCanvas = () => {
     if (!containerRef.current) return;
     
     const container = containerRef.current;
     const containerWidth = container.clientWidth;
-    // Calculer une hauteur proportionnelle avec un maximum de 70vh
     const containerHeight = Math.min(containerWidth * 0.5, window.innerHeight * 0.7);
     
     setCanvasSize({
@@ -22,6 +22,7 @@ const BezierFitting = () => {
       height: containerHeight
     });
   };
+
   // Observer le redimensionnement
   useEffect(() => {
     const resizeObserver = new ResizeObserver(resizeCanvas);
@@ -29,7 +30,6 @@ const BezierFitting = () => {
       resizeObserver.observe(containerRef.current);
     }
     
-    // Initialiser la taille
     resizeCanvas();
     
     return () => {
@@ -37,17 +37,16 @@ const BezierFitting = () => {
     };
   }, []);
 
+  // Lissage des points
   const smoothPoints = (points) => {
     if (points.length < 3) return points;
     
     const smoothed = [];
     const windowSize = 5;
     
-    // Garde les premiers points
     smoothed.push(points[0]);
     smoothed.push(points[1]);
     
-    // Lissage principal
     for (let i = 2; i < points.length - 2; i++) {
       const weights = [0.1, 0.2, 0.4, 0.2, 0.1];
       let sumX = 0;
@@ -65,13 +64,13 @@ const BezierFitting = () => {
       });
     }
     
-    // Garde les derniers points
     smoothed.push(points[points.length - 2]);
     smoothed.push(points[points.length - 1]);
     
     return smoothed;
   };
 
+  // Calcul des courbes de Bézier
   const calculateBezier = (points) => {
     if (points.length < 2) return [];
     
@@ -82,11 +81,9 @@ const BezierFitting = () => {
       const p0 = smoothedPoints[i];
       const p3 = smoothedPoints[i + 1];
       
-      // Calcul des vecteurs de direction
       const prev = i > 0 ? smoothedPoints[i-1] : p0;
       const next = i < smoothedPoints.length - 2 ? smoothedPoints[i+2] : p3;
       
-      // Vecteurs tangents
       const tangent1 = {
         x: p3.x - prev.x,
         y: p3.y - prev.y
@@ -96,17 +93,14 @@ const BezierFitting = () => {
         y: next.y - p0.y
       };
       
-      // Normalisation des vecteurs
       const len1 = Math.sqrt(tangent1.x * tangent1.x + tangent1.y * tangent1.y);
       const len2 = Math.sqrt(tangent2.x * tangent2.x + tangent2.y * tangent2.y);
       
-      // Distance entre les points
       const segDist = Math.sqrt(
         (p3.x - p0.x) * (p3.x - p0.x) + 
         (p3.y - p0.y) * (p3.y - p0.y)
       );
       
-      // Ajustement de la longueur des points de contrôle
       const controlLen = segDist * 0.3;
       
       const p1 = {
@@ -125,16 +119,14 @@ const BezierFitting = () => {
     return curves;
   };
 
-  // Ajuster le canvas quand sa taille change
+  // Effet de rendu du canvas
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    // Mettre à jour les dimensions du canvas
     canvas.width = canvasSize.width;
     canvas.height = canvasSize.height;
 
-    // Redessiner le contenu
     const ctx = canvas.getContext('2d');
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
@@ -143,8 +135,8 @@ const BezierFitting = () => {
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     
-    // Ligne en cours de dessin
-    if (isDrawing) {
+    // Trait à main levée
+    if (showHandDrawn) {
       ctx.beginPath();
       ctx.strokeStyle = '#93c5fd';
       ctx.lineWidth = Math.max(2.5, canvasSize.width / 240);
@@ -172,8 +164,9 @@ const BezierFitting = () => {
       });
       ctx.stroke();
     }
-  }, [points, canvasSize]);
+  }, [points, canvasSize, showHandDrawn]);
 
+  // Gestion de la position de la souris
   const getMousePos = (e) => {
     const canvas = canvasRef.current;
     const rect = canvas.getBoundingClientRect();
@@ -183,6 +176,7 @@ const BezierFitting = () => {
     };
   };
 
+  // Ajout de points avec distance minimale
   const addPoint = (point, prevPoints) => {
     if (prevPoints.length > 0) {
       const lastPoint = prevPoints[prevPoints.length - 1];
@@ -197,6 +191,7 @@ const BezierFitting = () => {
     return [...prevPoints, point];
   };
 
+  // Gestionnaires d'événements
   const handleMouseDown = (e) => {
     setIsDrawing(true);
     const pos = getMousePos(e);
@@ -214,11 +209,13 @@ const BezierFitting = () => {
     setIsDrawing(false);
   };
 
+  // Nettoyage du canvas
   const clearCanvas = () => {
     setPoints([]);
     setCurves([]);
   };
 
+  // Génération du SVG
   const generateSVG = () => {
     if (curves.length === 0) return;
 
@@ -264,7 +261,7 @@ const BezierFitting = () => {
     URL.revokeObjectURL(url);
   };
 
-return (
+  return (
     <div className="w-full p-4">
       <div 
         ref={containerRef}
@@ -305,11 +302,18 @@ return (
           >
             Exporter SVG
           </button>
+          <button
+            onClick={() => setShowHandDrawn(!showHandDrawn)}
+            className={`w-full sm:w-auto px-4 py-2 text-white rounded text-sm sm:text-base ${
+              showHandDrawn ? 'bg-purple-500 hover:bg-purple-600' : 'bg-gray-500 hover:bg-gray-600'
+            }`}
+          >
+            {showHandDrawn ? 'Masquer le trait' : 'Afficher le trait'}
+          </button>
         </div>
       </div>
     </div>
   );
 };
-
 
 export default BezierFitting;
