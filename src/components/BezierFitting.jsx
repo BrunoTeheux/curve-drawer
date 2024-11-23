@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 
 const BezierFitting = () => {
-  // États
+  // États existants
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
   const [isDrawing, setIsDrawing] = useState(false);
@@ -10,6 +10,11 @@ const BezierFitting = () => {
   const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
   const [showHandDrawn, setShowHandDrawn] = useState(true);
   const [strokeWidth, setStrokeWidth] = useState(3);
+  
+  // Nouveaux états pour le test de point
+  const [testPoint, setTestPoint] = useState(null);
+  const [pointIndex, setPointIndex] = useState(null);
+  const [isTestingPoint, setIsTestingPoint] = useState(false);
 
   // Fonction utilitaire pour obtenir la position de la souris
   const getMousePos = (e) => {
@@ -42,6 +47,20 @@ const BezierFitting = () => {
     const pos = getMousePos(e);
     setPoints([pos]);
     setCurves([]);
+    // Réinitialiser le test de point quand on commence un nouveau dessin
+    setTestPoint(null);
+    setPointIndex(null);
+    setIsTestingPoint(false);
+  };
+
+  // Fonction de nettoyage modifiée
+  const clearCanvas = () => {
+    setPoints([]);
+    setCurves([]);
+    // Réinitialiser le test de point quand on efface le canvas
+    setTestPoint(null);
+    setPointIndex(null);
+    setIsTestingPoint(false);
   };
 
   const handleMouseMove = (e) => {
@@ -63,12 +82,63 @@ const BezierFitting = () => {
     e.preventDefault();
     handleMouseMove(e.touches[0]);
   };
-
-  // Fonction de nettoyage
-  const clearCanvas = () => {
-    setPoints([]);
-    setCurves([]);
+const getBezierPoint = (t, p0, p1, p2, p3) => {
+  const mt = 1 - t;
+  return {
+    x: mt * mt * mt * p0.x + 3 * mt * mt * t * p1.x + 3 * mt * t * t * p2.x + t * t * t * p3.x,
+    y: mt * mt * mt * p0.y + 3 * mt * mt * t * p1.y + 3 * mt * t * t * p2.y + t * t * t * p3.y
   };
+};
+
+const isPointAboveSegment = (point, start, end) => {
+  return (end.x - start.x) * (point.y - start.y) >
+         (end.y - start.y) * (point.x - start.x);
+};
+
+const calculatePointIndex = (point) => {
+  if (!curves.length) return 0;
+
+  let wn = 0; // Winding number
+  const segments = [];
+
+  // Générer des points intermédiaires pour chaque courbe
+  curves.forEach(curve => {
+    const steps = 50; // Nombre de segments pour approximer la courbe
+    for (let i = 0; i < steps; i++) {
+      const t1 = i / steps;
+      const t2 = (i + 1) / steps;
+      const p1 = getBezierPoint(t1, curve.p0, curve.p1, curve.p2, curve.p3);
+      const p2 = getBezierPoint(t2, curve.p0, curve.p1, curve.p2, curve.p3);
+      segments.push([p1, p2]);
+    }
+  });
+
+  // Calculer le winding number
+  segments.forEach(([start, end]) => {
+    if (start.y <= point.y) {
+      if (end.y > point.y && isPointAboveSegment(point, start, end)) {
+        wn++;
+      }
+    } else {
+      if (end.y <= point.y && !isPointAboveSegment(point, start, end)) {
+        wn--;
+      }
+    }
+  });
+
+  return wn;
+};
+
+const handleCanvasClick = (e) => {
+  if (!isTestingPoint) return;
+  
+  const pos = getMousePos(e);
+  setTestPoint(pos);
+  const index = calculatePointIndex(pos);
+  setPointIndex(index);
+};
+
+
 
   // Fonction de redimensionnement
   const resizeCanvas = () => {
@@ -243,7 +313,7 @@ const BezierFitting = () => {
     ctx.lineJoin = 'round';
     
     // Trait à main levée
-    if (showHandDrawn) {
+    if (showHandDrawn && points.length > 1) {
       ctx.beginPath();
       ctx.strokeStyle = '#93c5fd';
       ctx.lineWidth = Math.max(2.5, canvasSize.width / 240);
@@ -252,7 +322,7 @@ const BezierFitting = () => {
       for (let i = 1; i < points.length; i++) {
         ctx.lineTo(points[i].x, points[i].y);
       }
-      ctx.stroke();
+      ctx.stroke(); // Déplacé ici pour terminer le trait à main levée
     }
     
     // Courbe lissée
@@ -271,9 +341,22 @@ const BezierFitting = () => {
       });
       ctx.stroke();
     }
-  }, [points, canvasSize, showHandDrawn, strokeWidth]);
+    
+    // Point de test
+    if (testPoint) {
+      ctx.beginPath();
+      ctx.fillStyle = pointIndex !== 0 ? '#22c55e' : '#ef4444';
+      ctx.arc(testPoint.x, testPoint.y, 6, 0, Math.PI * 2);
+      ctx.fill();
 
-  return (
+      ctx.font = '14px Arial';
+      ctx.fillStyle = '#000';
+      ctx.fillText(`Indice: ${pointIndex}`, testPoint.x + 10, testPoint.y - 10);
+    }
+    
+  }, [points, canvasSize, showHandDrawn, strokeWidth, testPoint, pointIndex]);
+
+return (
     <div className="w-full p-4">
       <div 
         ref={containerRef}
@@ -286,10 +369,17 @@ const BezierFitting = () => {
             height: canvasSize.height,
             touchAction: 'none'
           }}
-          onMouseDown={handleMouseDown}
-          onMouseMove={handleMouseMove}
+          onMouseDown={(e) => {
+            if (!isTestingPoint) handleMouseDown(e);
+          }}
+          onMouseMove={(e) => {
+            if (!isTestingPoint) handleMouseMove(e);
+          }}
           onMouseUp={handleMouseUp}
           onMouseLeave={handleMouseUp}
+          onClick={(e) => {
+            if (isTestingPoint) handleCanvasClick(e);
+          }}
           onTouchStart={handleTouchStart}
           onTouchMove={handleTouchMove}
           onTouchEnd={handleMouseUp}
@@ -316,6 +406,20 @@ const BezierFitting = () => {
               }`}
             >
               {showHandDrawn ? 'Masquer le trait' : 'Afficher le trait'}
+            </button>
+            <button
+              onClick={() => {
+                setIsTestingPoint(!isTestingPoint);
+                if (!isTestingPoint) {
+                  setTestPoint(null);
+                  setPointIndex(null);
+                }
+              }}
+              className={`w-full sm:w-auto px-4 py-2 text-white rounded text-sm sm:text-base ${
+                isTestingPoint ? 'bg-yellow-500 hover:bg-yellow-600' : 'bg-gray-500 hover:bg-gray-600'
+              }`}
+            >
+              {isTestingPoint ? 'Arrêter le test' : 'Tester un point'}
             </button>
           </div>
 
